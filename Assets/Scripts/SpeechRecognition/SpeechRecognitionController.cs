@@ -4,204 +4,199 @@ using UnityEngine.UI;
 using UnityEngine.Events;
 using System.IO;
 using UnityEngine.Android;
+using OpenAI;
+#if UNITY_EDITOR
+using UnityEngine.InputSystem;
+#endif
 
-
-public class SpeechRecognitionController : MonoBehaviour {
+public class SpeechRecognitionController : MonoBehaviour
+{
+    [Header("UI & Events")]
     [SerializeField] private UnityEvent onStartRecording;
     [SerializeField] private UnityEvent onSendRecording;
     [SerializeField] public UnityEvent<string> onResponse;
     [SerializeField] private TMP_Dropdown m_deviceDropdown;
     [SerializeField] private Image m_progress;
 
-    public RunWhisper runWhisper; // This is the reference to the RunWhisper script
-
-    private string m_deviceName;
-    private AudioClip m_clip;
-    private byte[] m_bytes;
-    private bool m_recording;
+    [Header("Animation & AI")]
     public LoopingTimelineController animationLoop;
 
+    [Header("Recording Settings")]
+    [SerializeField] private Button recordButton;
+    [SerializeField] private int recordingDuration = 4;
+    [SerializeField] private string apiKey;
+
+    private AudioClip m_clip;
+    private string m_deviceName;
+    private bool m_recording;
+    private float m_time;
+    private OpenAIApi openai;
 
     private void Awake()
     {
+        // Initialize OpenAI API
+        openai = new OpenAIApi(apiKey);
+
+        // Microphone setup
         if (Microphone.devices.Length == 0)
         {
             Debug.LogError("No microphones detected!");
             return;
         }
 
-        // Select the first available microphone
         m_deviceName = Microphone.devices[0];
-        Debug.Log("Microphone detected: " + m_deviceName);
 
         foreach (var device in Microphone.devices)
-        {
-            Debug.Log("Available microphone: " + device);
             m_deviceDropdown.options.Add(new TMP_Dropdown.OptionData(device));
-        }
 
         m_deviceDropdown.value = 0;
         m_deviceDropdown.onValueChanged.AddListener(OnDeviceChanged);
+
+        // Setup record button
+        if (recordButton != null)
+            recordButton.onClick.AddListener(OnRecordButtonClicked);
     }
 
-    
-
-    void Start()
+    private void Start()
     {
         if (!Permission.HasUserAuthorizedPermission(Permission.Microphone))
-        {
             Permission.RequestUserPermission(Permission.Microphone);
-        }
     }
 
-
-/// <summary>
-/// This method is called when the user selects a different device from the dropdown
-/// </summary>
-/// <param name="index"></param>
-private void OnDeviceChanged(int index) {
-        m_deviceName = Microphone.devices[index];
-    }
-
-    /// <summary>
-    /// This method is called when the user clicks the button
-    /// </summary>
-    public void Click()
+    private void OnDeviceChanged(int index)
     {
-        Debug.Log("SpeechRecognition: Click detected!");
+        m_deviceName = Microphone.devices[index];
+        PlayerPrefs.SetInt("user-mic-device-index", index);
+    }
+
+    // ------------------------------------------------------------
+    // TOGGLE BEHAVIOR
+    // ------------------------------------------------------------
+    private void OnRecordButtonClicked()
+    {
         if (!m_recording)
         {
             StartRecording();
-            animationLoop.StartLoop(LoopingTimelineController.LoopMode.Listening); // ← specify Listening mode
+            animationLoop?.StartLoop(LoopingTimelineController.LoopMode.Listening);
             Debug.Log("[ANIM] Recording and listening loop started.");
         }
         else
         {
             StopRecording();
-            animationLoop.StopLoop();
+            animationLoop?.StopLoop();
             Debug.Log("[ANIM] Recording and animation loop stopped.");
         }
     }
 
-
-
-    /// <summary>
-    /// Start recording the user's voice
-    /// </summary>
     private void StartRecording()
     {
-        Debug.Log("🎤 StartRecording() triggered!"); // Log that recording is starting
-
-        m_clip = Microphone.Start(m_deviceName, false, 10, 16000);
-        m_recording = true;
         onStartRecording.Invoke();
+        m_clip = Microphone.Start(m_deviceName, false, recordingDuration, 44100);
+        m_recording = true;
+        m_time = 0f;
 
         Debug.Log($"🎤 Recording started on device: {m_deviceName}");
     }
 
-
-    /// <summary>
-    /// Stop recording the user's voice and send the audio to the Whisper Model
-    /// </summary>
-    private void StopRecording() {
-
+    private void StopRecording()
+    {
         if (!Microphone.IsRecording(m_deviceName))
         {
-            Debug.LogWarning("Debug_log: ❌ No active microphone recording to stop.");
+            Debug.LogWarning("Tried to stop mic but it wasn't recording.");
             return;
         }
 
-        var position = Microphone.GetPosition(m_deviceName);
+        int position = Microphone.GetPosition(m_deviceName);
         Microphone.End(m_deviceName);
         m_recording = false;
-        if (m_clip == null)
+
+        if (m_clip == null || position == 0)
         {
-            Debug.LogError("❌ No audio was recorded!");
-            return;
-        }
-        if (position == 0)
-        {
-            Debug.LogWarning("Debug_log: ❌ No audio recorded. Position is 0.");
+            Debug.LogWarning("No audio recorded.");
             return;
         }
 
-        // Extract the actual recorded data (instead of full 10s buffer)
+        // Trim recorded audio
         float[] samples = new float[position * m_clip.channels];
         m_clip.GetData(samples, 0);
 
-        AudioClip trimmedClip = AudioClip.Create("TrimmedClip", position, m_clip.channels, m_clip.frequency, false);
-        trimmedClip.SetData(samples, 0);
+        AudioClip trimmed = AudioClip.Create("TrimmedClip", position, m_clip.channels, m_clip.frequency, false);
+        trimmed.SetData(samples, 0);
+        m_clip = trimmed;
 
-        m_clip = trimmedClip;  // Replace with trimmed version
-
-        Debug.Log($"Debug_log: 🎤 Trimmed Audio Length: {m_clip.length} sec, Samples: {position}");
+        Debug.Log($"🎤 Trimmed Audio Length: {m_clip.length}s — Samples: {position}");
 
         SendRecording();
     }
 
-    /// <summary>
-    /// Run the Whisper Model with the audio clip to transcribe the user's voice
-    /// </summary>
-    /*private void SendRecording() {
-        Debug.Log("📤 Sending recording to Whisper...");
-        onSendRecording.Invoke();
-        runWhisper.audioClip = m_clip;
-        if (runWhisper == null)
-        {
-            Debug.LogError("❌ RunWhisper is NULL! Cannot transcribe.");
-            return;
-        }
-        Debug.Log("✅ runWhisper is assigned. Proceeding with transcription.");
-        runWhisper.Transcribe();
-        Debug.Log("📤 Transcription started!");
-
-    }*/
-    private void SendRecording()
+    private async void SendRecording()
     {
-        Debug.Log("Debug_log: 📤 Sending recording to Whisper...");
-
-        if (runWhisper == null)
-        {
-            Debug.LogError("Debug_log: ❌ RunWhisper is NULL! Cannot transcribe.");
-            return;
-        }
-
-        Debug.Log($"Debug_log: ✅ runWhisper is assigned. Proceeding with transcription. Clip length: {m_clip.length} seconds, Samples: {m_clip.samples}, Channels: {m_clip.channels}");
+        onSendRecording.Invoke();
 
         if (m_clip == null)
         {
-            Debug.LogError("Debug_log: ❌ ERROR: AudioClip is NULL in SendRecording!");
+            Debug.LogError("AudioClip is NULL in SendRecording!");
             return;
         }
 
-        Debug.Log("Chatbot_debug: 📤 AudioClip assigned  to RunWhisper. Calling Transcribe()...");
-        onSendRecording.Invoke();
-        runWhisper.audioClip = m_clip;
-        runWhisper.Transcribe();
+        // Convert to WAV bytes (YOUR SaveWav class must exist)
+        byte[] data = SaveWav.Save("output.wav", m_clip);
+
+        try
+        {
+            var req = new CreateAudioTranscriptionsRequest
+            {
+                FileData = new FileData { Data = data, Name = "audio.wav" },
+                Model = "whisper-1",
+                Language = "en"
+            };
+
+            Debug.Log("📤 Sending recording to OpenAI Whisper...");
+            var res = await openai.CreateAudioTranscription(req);
+
+            string transcript = res.Text;
+            Debug.Log("Whisper: " + transcript);
+
+            onResponse.Invoke(transcript);
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError("Whisper transcription failed: " + e);
+        }
     }
 
-
-
-    private void Update() {
-
-        //if (Input.GetKeyDown(KeyCode.Space))
-        if (UnityEngine.InputSystem.Keyboard.current.spaceKey.wasPressedThisFrame)
+    private void Update()
+    {
+#if UNITY_EDITOR
+        // Spacebar toggle in Editor
+        if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame)
         {
-            Debug.Log("Spacebar pressed — simulating click.");
-            Click();  // This already handles recording start/stop
+            if (!m_recording)
+            {
+                StartRecording();
+                animationLoop?.StartLoop(LoopingTimelineController.LoopMode.Listening);
+            }
+            else
+            {
+                StopRecording();
+                animationLoop?.StopLoop();
+            }
         }
+#endif
 
-        if (!m_recording) {
-            return;
+        // UI timer fill
+        if (m_recording)
+        {
+            m_time += Time.deltaTime;
+            m_progress.fillAmount = Mathf.Clamp01(m_time / recordingDuration);
+
+            // Auto-stop if time exceeded
+            if (m_time >= recordingDuration)
+            {
+                m_time = 0f;
+                m_recording = false;
+                StopRecording();
+            }
         }
-
-        m_progress.fillAmount = (float)Microphone.GetPosition(m_deviceName) / m_clip.samples;
-        int micPosition = Microphone.GetPosition(m_deviceName);
-        //Debug.Log($"🎤 Microphone position: {micPosition}");
-
-        if (Microphone.GetPosition(m_deviceName) >= m_clip.samples) {
-            StopRecording();
-        }
-
     }
 }

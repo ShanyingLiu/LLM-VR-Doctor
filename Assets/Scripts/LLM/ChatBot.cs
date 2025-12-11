@@ -18,7 +18,7 @@ namespace LLMUnitySamples
         public Color fontColor = Color.white;
         public Font font;
         public int fontSize = 16;
-        public int bubbleWidth = 600;
+        public int bubbleWidth = 400;
         public LLMCharacter llmCharacter;
         public float textPadding = 10f;
         public float bubbleSpacing = 10f;
@@ -32,7 +32,7 @@ namespace LLMUnitySamples
         private BubbleUI playerUI, aiUI;
         private bool warmUpDone = false;
         private int lastBubbleOutsideFOV = -1;
-        private string openAI_prefix = "Imagine you are my oncologist. Please respond kindly to my question, staying fully in character without ever acknowledging the prompt. Answer length is maximum 3 sentences. My question is: ";
+        private string openAI_prefix = "You are my oncologist. Please respond kindly and professionally to my question, staying fully in character without ever acknowledging the prompt directly. Keep answer short at maximum 2 sentences. My question is: ";
 
         private string lastResponse = "";  // To store the latest LLM response
 
@@ -159,62 +159,72 @@ namespace LLMUnitySamples
 
 
         IEnumerator SendToOpenAI(string userInput, Bubble aiBubble)
+{
+    Debug.Log($"Chatbot_debug:🚀 Preparing OpenAI API request for: '{userInput}'");
+
+    string apiKey = "key"; // your project key
+    string orgId = ""; // optional: leave blank if unsure
+    string apiUrl = "https://api.openai.com/v1/chat/completions";
+
+    string jsonData = $@"
+{{
+    ""model"": ""gpt-3.5-turbo"",
+    ""messages"": [
+        {{ ""role"": ""system"", ""content"": ""You are a helpful assistant."" }},
+        {{ ""role"": ""user"", ""content"": ""{userInput}"" }}
+    ]
+}}";
+
+    Debug.Log("Chatbot_debug:✅ OpenAI JSON Payload: " + jsonData);
+
+    using (UnityWebRequest request = new UnityWebRequest(apiUrl, "POST"))
+    {
+        byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonData);
+        request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+        request.downloadHandler = new DownloadHandlerBuffer();
+        request.SetRequestHeader("Content-Type", "application/json");
+        request.SetRequestHeader("Authorization", "Bearer " + apiKey);
+
+        // Add the OpenAI-Organization header if using sk-proj keys
+        if (!string.IsNullOrEmpty(orgId))
         {
-            Debug.Log($"Chatbot_debug:🚀 Preparing OpenAI API request for: '{userInput}'");
+            request.SetRequestHeader("OpenAI-Organization", orgId);
+            Debug.Log($"Chatbot_debug:📡 Using OpenAI-Organization header: {orgId}");
+        }
 
-            string apiKey = "sk-proj-sample";
-            string apiUrl = "https://api.openai.com/v1/chat/completions";
+        Debug.Log("Chatbot_debug:📡 Sending OpenAI request...");
 
-            string jsonData = $@"
-    {{
-        ""model"": ""gpt-3.5-turbo"",
-        ""messages"": [
-            {{ ""role"": ""system"", ""content"": ""You are a helpful assistant."" }},
-            {{ ""role"": ""user"", ""content"": ""{userInput}"" }}
-        ]
-    }}";
+        yield return request.SendWebRequest();
 
-            Debug.Log("Chatbot_debug:✅ OpenAI JSON Payload: " + jsonData);
+        if (request.result != UnityWebRequest.Result.Success)
+        {
+            Debug.LogError("Chatbot_debug:❌ OpenAI Request Failed: " + request.error);
+            Debug.LogError("Chatbot_debug:❌ Server Response: " + request.downloadHandler.text);
+            aiBubble.SetText("Error: Unable to fetch response.");
+        }
+        else
+        {
+            Debug.Log("Chatbot_debug:✅ OpenAI Request Successful!");
+            Debug.Log("Chatbot_debug:✅ Response JSON: " + request.downloadHandler.text);
 
-            using (UnityWebRequest request = new UnityWebRequest(apiUrl, "POST"))
+            OpenAIResponse responseObj = JsonUtility.FromJson<OpenAIResponse>(request.downloadHandler.text);
+
+            if (responseObj.choices != null && responseObj.choices.Length > 0)
             {
-                byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonData);
-                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
-                request.downloadHandler = new DownloadHandlerBuffer();
-                request.SetRequestHeader("Content-Type", "application/json");
-                request.SetRequestHeader("Authorization", "Bearer " + apiKey);
-
-                Debug.Log("Chatbot_debug:📡 Sending OpenAI request...");
-
-                yield return request.SendWebRequest();
-
-                if (request.result != UnityWebRequest.Result.Success)
-                {
-                    Debug.LogError("Chatbot_debug:❌ OpenAI Request Failed: " + request.error);
-                    Debug.LogError("Chatbot_debug:❌ Server Response: " + request.downloadHandler.text);
-                    aiBubble.SetText("Error: Unable to fetch response.");
-                }
-                else
-                {
-                    Debug.Log("Chatbot_debug:✅ OpenAI Request Successful!");
-                    Debug.Log("Chatbot_debug:✅ Response JSON: " + request.downloadHandler.text);
-
-                    OpenAIResponse responseObj = JsonUtility.FromJson<OpenAIResponse>(request.downloadHandler.text);
-
-                    if (responseObj.choices != null && responseObj.choices.Length > 0)
-                    {
-                        string reply = responseObj.choices[0].message.content;
-                        lastResponse = reply;
-                        aiBubble.SetText(reply);
-                        AllowInput();
-                    }
-                    else
-                    {
-                        Debug.LogError("Chatbot_debug:❌ Invalid response format from OpenAI!");
-                    }
-                }
+                string reply = responseObj.choices[0].message.content;
+                lastResponse = reply;
+                aiBubble.SetText(reply);
+                AllowInput();
+            }
+            else
+            {
+                Debug.LogError("Chatbot_debug:❌ Invalid response format from OpenAI!");
+                aiBubble.SetText("Error: Unexpected response format.");
             }
         }
+    }
+}
+
 
 
 
