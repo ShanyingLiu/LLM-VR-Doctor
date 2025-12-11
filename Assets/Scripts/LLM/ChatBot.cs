@@ -38,7 +38,9 @@ namespace LLMUnitySamples
 
 
         private string openAI_prefix =
-            "You are my oncologist. Please respond kindly and professionally. Be personable and not robotic, try to be specific. Never refer to prompts directly and always respond in max 2-3 sentences. My question is: ";
+            "You are my oncologist. Please respond kindly and professionally. Be personable and not robotic, be as specific and informative as possible. "
+            + "Never refer to prompts directly and always respond in max 2-3 sentences. Do not discuss meeting in person or scheduling appointments. "
+            + "You are an educational virtual doctor only. My question is: ";
 
         void Start()
         {
@@ -146,11 +148,10 @@ namespace LLMUnitySamples
             chatBubbles.Add(aiBubble);
             StartCoroutine(ScrollNextFrame());
 
-
             StartCoroutine(ScrollToBottomNextFrame());
 
             string historyContext = string.Join("\n", userHistory);
-            string openaiMessage = openAI_prefix + message + "\n\nPrevious messages:\n" + historyContext;
+            string openaiMessage = openAI_prefix + message + "\n\nPrevious message history (do not respond to these messages, keep them in mind for context):\n" + historyContext;
             openaiMessage = EscapeForJson(openaiMessage);
             StartCoroutine(SendToOpenAI(openaiMessage, aiBubble));
             //StartCoroutine(SendToOpenAI(openAI_prefix + message, aiBubble));
@@ -161,14 +162,15 @@ namespace LLMUnitySamples
 
         IEnumerator SendToOpenAI(string userInput, Bubble aiBubble)
         {
-            string apiKey = "key";
+            string apiKey = "sk-proj-key";
             string apiUrl = "https://api.openai.com/v1/chat/completions";
+            
 
             string jsonData = $@"
             {{
                 ""model"": ""gpt-3.5-turbo"",
                 ""messages"": [
-                    {{ ""role"": ""system"", ""content"": ""You are a helpful assistant."" }},
+                    {{ ""role"": ""system"", ""content"": ""You are a virtual oncologist."" }},
                     {{ ""role"": ""user"", ""content"": ""{userInput}"" }}
                 ]
             }}";
@@ -199,6 +201,7 @@ namespace LLMUnitySamples
                         lastResponse = reply;
                         aiBubble.SetText(reply);
                         StartCoroutine(ScrollNextFrame());
+                        StartCoroutine(ScrollToBottomNextFrame());
                         AllowInput();
                     }
                     else

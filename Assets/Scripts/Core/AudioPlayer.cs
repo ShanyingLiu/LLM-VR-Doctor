@@ -1,14 +1,16 @@
 using System;
 using System.IO;
-using UnityEngine;
 using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
 using UnityEngine.Networking;
 
 [RequireComponent(typeof(AudioSource))]
 public class AudioPlayer : MonoBehaviour
 {
     private AudioSource audioSource;
-    private const bool deleteCachedFile = true;
+    private Queue<string> audioQueue = new Queue<string>();   // file paths
+    private bool isPlaying = false;
 
     private void OnEnable()
     {
@@ -17,27 +19,51 @@ public class AudioPlayer : MonoBehaviour
 
     private void OnValidate() => OnEnable();
 
+    // Called by TTS system for each chunk
     public void ProcessAudioBytes(byte[] audioData)
     {
-        string filePath = Path.Combine(Application.persistentDataPath, "audio.mp3");
+        // Unique file name per chunk to avoid collisions
+        string filePath = Path.Combine(
+            Application.persistentDataPath,
+            "tts_" + Guid.NewGuid().ToString("N") + ".mp3"
+        );
+
         File.WriteAllBytes(filePath, audioData);
+        audioQueue.Enqueue(filePath);
 
-        StartCoroutine(LoadAndPlayAudio(filePath));
+        if (!isPlaying)
+            StartCoroutine(PlaybackQueueLoop());
     }
-    
-    private IEnumerator LoadAndPlayAudio(string filePath)
-    {
-        using UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip("file://" + filePath, AudioType.MPEG);
-        yield return www.SendWebRequest();
 
-        if (www.result == UnityWebRequest.Result.Success)
+    // Main loop that plays queued clips in order
+    private IEnumerator PlaybackQueueLoop()
+    {
+        isPlaying = true;
+
+        while (audioQueue.Count > 0)
         {
-            AudioClip audioClip = DownloadHandlerAudioClip.GetContent(www);
-            audioSource.clip = audioClip;
-            audioSource.Play();
+            string filePath = audioQueue.Dequeue();
+
+            using UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip("file://" + filePath, AudioType.MPEG);
+            yield return www.SendWebRequest();
+
+            if (www.result == UnityWebRequest.Result.Success)
+            {
+                AudioClip clip = DownloadHandlerAudioClip.GetContent(www);
+                audioSource.PlayOneShot(clip);
+
+                // Wait for audio to finish
+                yield return new WaitForSeconds(clip.length);
+            }
+            else
+            {
+                Debug.LogError("Error loading TTS audio: " + www.error);
+            }
+
+            // Delete file after use
+            try { File.Delete(filePath); } catch {}
         }
-        else Debug.LogError("Audio file loading error: " + www.error);
-        
-        if (deleteCachedFile) File.Delete(filePath);
+
+        isPlaying = false;
     }
 }

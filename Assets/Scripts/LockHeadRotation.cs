@@ -2,34 +2,42 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class LockHeadWorldYaw : MonoBehaviour
+public class RotateTowardsTarget : MonoBehaviour
 {
-    public Transform headBone;
-    private Quaternion initialWorldRotation;
+    [Header("Target to face")]
+    public Transform target;
+
+    [Header("Rotation Settings")]
+    public float rotationSpeed = 2f; // how fast it rotates
+    public float maxYawAngle = 45f;  // optional limit from initial facing
+
+    private Quaternion initialRotation;
 
     void Start()
     {
-        // Save the original world-space rotation
-        if (headBone != null)
-            initialWorldRotation = headBone.rotation;
+        // Save the original rotation
+        initialRotation = transform.rotation;
     }
 
     void LateUpdate()
     {
-        if (headBone != null)
-        {
-            // Get the current rotation in world space
-            Vector3 currentEuler = headBone.rotation.eulerAngles;
-            Vector3 initialEuler = initialWorldRotation.eulerAngles;
+        if (target == null) return;
 
-            // Lock Y to the original value, allow current X and Z
-            Vector3 lockedEuler = new Vector3(
-                currentEuler.x,     // keep current pitch (nodding)
-                initialEuler.y + 12.0f,     // lock yaw
-                currentEuler.z      // keep current roll (tilting)
-            );
+        // Get direction to target in world space
+        Vector3 direction = target.position - transform.position;
+        direction.y = 0; // ignore pitch, only rotate on Y
 
-            headBone.rotation = Quaternion.Euler(lockedEuler);
-        }
+        if (direction.sqrMagnitude < 0.0001f) return;
+
+        // Desired rotation to look at target
+        Quaternion targetRotation = Quaternion.LookRotation(direction);
+
+        // Optionally clamp yaw relative to initial rotation
+        float yawDiff = Quaternion.Angle(initialRotation, targetRotation);
+        if (yawDiff > maxYawAngle)
+            targetRotation = Quaternion.RotateTowards(initialRotation, targetRotation, maxYawAngle);
+
+        // Smoothly rotate towards target
+        transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * rotationSpeed);
     }
 }

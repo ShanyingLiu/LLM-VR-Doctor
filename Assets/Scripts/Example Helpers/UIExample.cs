@@ -17,10 +17,17 @@ public class UIExample : MonoBehaviour
     {
         if (ttsManager)
         {
-            ttsManager.SynthesizeAndPlay(input.text, (TTSModel) modelDropdown.value, (TTSVoice) voiceDropdown.value, speedSlider.value);
+            // Update selected settings before playback
+            ttsManager.model = (TTSModel)modelDropdown.value;
+            ttsManager.voice = (TTSVoice)voiceDropdown.value;
+            ttsManager.speed = speedSlider.value;
+
+            ttsManager.SynthesizeAndPlay(input.text);
+
             talkingEffect ??= StartCoroutine(TalkingEffect());
         }
     }
+
     
     // hacky little animation to "mimic" a talking effect of the 2d person sprites
     IEnumerator TalkingEffect()

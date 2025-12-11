@@ -23,8 +23,10 @@ public class SpeechRecognitionController : MonoBehaviour
 
     [Header("Recording Settings")]
     [SerializeField] private Button recordButton;
-    [SerializeField] private int recordingDuration = 4;
+    [SerializeField] private int recordingDuration = 4;   // UI fill time
     [SerializeField] private string apiKey;
+
+    private const float MaxRecordingTime = 15f; // HARD CEILING
 
     private AudioClip m_clip;
     private string m_deviceName;
@@ -34,10 +36,8 @@ public class SpeechRecognitionController : MonoBehaviour
 
     private void Awake()
     {
-        // Initialize OpenAI API
         openai = new OpenAIApi(apiKey);
 
-        // Microphone setup
         if (Microphone.devices.Length == 0)
         {
             Debug.LogError("No microphones detected!");
@@ -52,7 +52,6 @@ public class SpeechRecognitionController : MonoBehaviour
         m_deviceDropdown.value = 0;
         m_deviceDropdown.onValueChanged.AddListener(OnDeviceChanged);
 
-        // Setup record button
         if (recordButton != null)
             recordButton.onClick.AddListener(OnRecordButtonClicked);
     }
@@ -63,43 +62,45 @@ public class SpeechRecognitionController : MonoBehaviour
             Permission.RequestUserPermission(Permission.Microphone);
     }
 
-    private void OnDeviceChanged(int index)
+    private void OnDeviceChanged(int idx)
     {
-        m_deviceName = Microphone.devices[index];
-        PlayerPrefs.SetInt("user-mic-device-index", index);
+        m_deviceName = Microphone.devices[idx];
+        PlayerPrefs.SetInt("user-mic-device-index", idx);
     }
 
-    // ------------------------------------------------------------
-    // TOGGLE BEHAVIOR
-    // ------------------------------------------------------------
     private void OnRecordButtonClicked()
     {
         if (!m_recording)
         {
             StartRecording();
             animationLoop?.StartLoop(LoopingTimelineController.LoopMode.Listening);
-            Debug.Log("[ANIM] Recording and listening loop started.");
         }
         else
         {
             StopRecording();
             animationLoop?.StopLoop();
-            Debug.Log("[ANIM] Recording and animation loop stopped.");
         }
     }
 
     private void StartRecording()
     {
         onStartRecording.Invoke();
-        m_clip = Microphone.Start(m_deviceName, false, recordingDuration, 44100);
+
+        // Allow up to 10s maximum recording camera
+        m_clip = Microphone.Start(m_deviceName, false, (int)MaxRecordingTime, 44100);
+
         m_recording = true;
         m_time = 0f;
+        m_progress.fillAmount = 0f;
 
         Debug.Log($"🎤 Recording started on device: {m_deviceName}");
     }
 
     private void StopRecording()
     {
+        if (!m_recording)
+            return;
+
         if (!Microphone.IsRecording(m_deviceName))
         {
             Debug.LogWarning("Tried to stop mic but it wasn't recording.");
@@ -108,6 +109,7 @@ public class SpeechRecognitionController : MonoBehaviour
 
         int position = Microphone.GetPosition(m_deviceName);
         Microphone.End(m_deviceName);
+
         m_recording = false;
 
         if (m_clip == null || position == 0)
@@ -116,11 +118,17 @@ public class SpeechRecognitionController : MonoBehaviour
             return;
         }
 
-        // Trim recorded audio
+        // Trim audio
         float[] samples = new float[position * m_clip.channels];
         m_clip.GetData(samples, 0);
 
-        AudioClip trimmed = AudioClip.Create("TrimmedClip", position, m_clip.channels, m_clip.frequency, false);
+        AudioClip trimmed = AudioClip.Create(
+            "TrimmedClip",
+            position,
+            m_clip.channels,
+            m_clip.frequency,
+            false
+        );
         trimmed.SetData(samples, 0);
         m_clip = trimmed;
 
@@ -139,7 +147,6 @@ public class SpeechRecognitionController : MonoBehaviour
             return;
         }
 
-        // Convert to WAV bytes (YOUR SaveWav class must exist)
         byte[] data = SaveWav.Save("output.wav", m_clip);
 
         try
@@ -151,13 +158,10 @@ public class SpeechRecognitionController : MonoBehaviour
                 Language = "en"
             };
 
-            Debug.Log("📤 Sending recording to OpenAI Whisper...");
+            Debug.Log("📤 Sending recording to Whisper...");
             var res = await openai.CreateAudioTranscription(req);
 
-            string transcript = res.Text;
-            Debug.Log("Whisper: " + transcript);
-
-            onResponse.Invoke(transcript);
+            onResponse.Invoke(res.Text);
         }
         catch (System.Exception e)
         {
@@ -168,7 +172,6 @@ public class SpeechRecognitionController : MonoBehaviour
     private void Update()
     {
 #if UNITY_EDITOR
-        // Spacebar toggle in Editor
         if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame)
         {
             if (!m_recording)
@@ -184,18 +187,19 @@ public class SpeechRecognitionController : MonoBehaviour
         }
 #endif
 
-        // UI timer fill
         if (m_recording)
         {
             m_time += Time.deltaTime;
+
+            // UI fill based on desired recordingDuration
             m_progress.fillAmount = Mathf.Clamp01(m_time / recordingDuration);
 
-            // Auto-stop if time exceeded
-            if (m_time >= recordingDuration)
+            // HARD CEILING 
+            if (m_time >= MaxRecordingTime)
             {
-                m_time = 0f;
-                m_recording = false;
+                Debug.Log("Auto-stop: reached maximum recording time");
                 StopRecording();
+                animationLoop?.StopLoop();
             }
         }
     }
