@@ -11,6 +11,8 @@ namespace LLMUnitySamples
     {
         [SerializeField] private TTSManager ttsManager;
         [SerializeField] private UnityEngine.UI.ScrollRect scrollRect; 
+        [SerializeField] private WebsiteDisplay websiteDisplay;
+
 
 
         public Transform chatContainer;
@@ -39,8 +41,10 @@ namespace LLMUnitySamples
 
         private string openAI_prefix =
             "You are my oncologist. Please respond kindly and professionally. Be personable and not robotic, be as specific and informative as possible. "
-            + "Never refer to prompts directly and always respond in max 2-3 sentences. Do not discuss meeting in person or scheduling appointments. "
-            + "You are an educational virtual doctor only. My question is: ";
+            + "Never refer to prompts directly and ALWAYS RESPOND in max 3 sentences. Do not discuss meeting in person or scheduling appointments. "
+            + "Refer to these websites for information on cancer treatments and terminology: NCI: https://www.nih.gov/about-nih/nih-almanac/national-cancer-institute-nci, CDC: https://www.cdc.gov/, FDA: https://www.fda.gov/, NIH ClinicalTrials.gov: https://clinicaltrials.gov/, MedLinePlus Cancer: https://medlineplus.gov/cancer.html"
+            + "If a visual helper or more complex information is shared, then at the very end of your response, include a link to a relevant webpage with more information, enclosed in [] square brackets. Do not explain the link, the end user will not see it. It is not needed if you are exchanging basic greetings etc."
+            + "Your response should not exceed 3 sentences or 75 words. My question is: ";
 
         void Start()
         {
@@ -140,9 +144,16 @@ namespace LLMUnitySamples
             if (userHistory.Count > maxHistory)
                 userHistory.RemoveAt(0);
 
-
+            List<string> waitresponses = new List<string>
+            {
+                "I am thinking...",
+                "Interesting!",
+                "Let me think...",
+                "Hmmm..."
+            };
+            int randidx = Random.Range(0, waitresponses.Count);
             Bubble playerBubble = new Bubble(chatContainer, playerUI, "PlayerBubble", message);
-            Bubble aiBubble = new Bubble(chatContainer, aiUI, "AIBubble", "...");
+            Bubble aiBubble = new Bubble(chatContainer, aiUI, "AIBubble", waitresponses[randidx]);
 
             chatBubbles.Add(playerBubble);
             chatBubbles.Add(aiBubble);
@@ -151,7 +162,7 @@ namespace LLMUnitySamples
             StartCoroutine(ScrollToBottomNextFrame());
 
             string historyContext = string.Join("\n", userHistory);
-            string openaiMessage = openAI_prefix + message + "\n\nPrevious message history (do not respond to these messages, keep them in mind for context):\n" + historyContext;
+            string openaiMessage = openAI_prefix + message + "\n\nPrevious message history (do not respond directly to the messages below, keep them in mind for context):\n" + historyContext;
             openaiMessage = EscapeForJson(openaiMessage);
             StartCoroutine(SendToOpenAI(openaiMessage, aiBubble));
             //StartCoroutine(SendToOpenAI(openAI_prefix + message, aiBubble));
@@ -162,15 +173,15 @@ namespace LLMUnitySamples
 
         IEnumerator SendToOpenAI(string userInput, Bubble aiBubble)
         {
-            string apiKey = "sk-proj-key";
+            string apiKey = "";
             string apiUrl = "https://api.openai.com/v1/chat/completions";
             
 
             string jsonData = $@"
             {{
-                ""model"": ""gpt-3.5-turbo"",
+                ""model"": ""gpt-4o-mini"",
                 ""messages"": [
-                    {{ ""role"": ""system"", ""content"": ""You are a virtual oncologist."" }},
+                    {{ ""role"": ""system"", ""content"": ""You are an oncologist."" }},
                     {{ ""role"": ""user"", ""content"": ""{userInput}"" }}
                 ]
             }}";
@@ -198,11 +209,25 @@ namespace LLMUnitySamples
                         responseObj.choices.Length > 0)
                     {
                         string reply = responseObj.choices[0].message.content;
-                        lastResponse = reply;
-                        aiBubble.SetText(reply);
+
+                        string cleanedReply = reply;
+                        string link;
+
+                        if (TryExtractLink(reply, out cleanedReply, out link))
+                        {
+                            if (!string.IsNullOrEmpty(link) && websiteDisplay != null)
+                            {
+                                websiteDisplay.DisplayURL(link);
+                            }
+                        }
+
+                        lastResponse = cleanedReply;
+                        aiBubble.SetText(cleanedReply);
+
                         StartCoroutine(ScrollNextFrame());
                         StartCoroutine(ScrollToBottomNextFrame());
                         AllowInput();
+
                     }
                     else
                     {
@@ -231,9 +256,28 @@ namespace LLMUnitySamples
         {
             inputBlocker.SetActive(false);
             warmUpDone = true;
-            inputBubble.SetPlaceHolderText("Start a conversation with your virtual oncologist...");
+            inputBubble.SetPlaceHolderText("Press \'A\' or the record button to start a conversation with your virtual oncologist...");
             AllowInput();
         }
+
+        private bool TryExtractLink(string text, out string cleanedText, out string link)
+        {
+            cleanedText = text;
+            link = null;
+
+            int open = text.LastIndexOf('[');
+            int close = text.LastIndexOf(']');
+
+            if (open >= 0 && close > open)
+            {
+                link = text.Substring(open + 1, close - open - 1).Trim();
+                cleanedText = text.Remove(open, close - open + 1).Trim();
+                return true;
+            }
+
+            return false;
+        }
+
 
         IEnumerator BlockInteraction()
         {
