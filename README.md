@@ -4,6 +4,8 @@
 
 This project uses speech recognition using the Whisper model and [Sentis](https://unity.com/products/sentis), LLM inference using [LLMUnity](https://github.com/undreamai/LLMUnity) , speech to text, and animated avatar sequences.
 
+![Cover image of system](DemoImage.png)
+
 ## Running the project
 
 - Unity 2022.3.62f1 recommended (experimental packages being used)
