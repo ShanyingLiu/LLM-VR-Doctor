@@ -5,9 +5,7 @@ using UnityEngine.Events;
 using System.IO;
 using UnityEngine.Android;
 using OpenAI;
-#if UNITY_EDITOR
 using UnityEngine.InputSystem;
-#endif
 
 public class SpeechRecognitionController : MonoBehaviour
 {
@@ -96,6 +94,21 @@ public class SpeechRecognitionController : MonoBehaviour
         Debug.Log($"🎤 Recording started on device: {m_deviceName}");
     }
 
+    private void ToggleRecording()
+    {
+        if (!m_recording)
+        {
+            StartRecording();
+            animationLoop?.StartLoop(LoopingTimelineController.LoopMode.Listening);
+        }
+        else
+        {
+            StopRecording();
+            animationLoop?.StopLoop();
+        }
+    }
+
+
     private void StopRecording()
     {
         if (!m_recording)
@@ -168,33 +181,32 @@ public class SpeechRecognitionController : MonoBehaviour
             Debug.LogError("Whisper transcription failed: " + e);
         }
     }
-
+    
     private void Update()
     {
-#if UNITY_EDITOR
-        if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame)
+        // Controller A button (Gamepad / XR)
+        if (Gamepad.current != null &&
+            Gamepad.current.buttonSouth.wasPressedThisFrame)
         {
-            if (!m_recording)
-            {
-                StartRecording();
-                animationLoop?.StartLoop(LoopingTimelineController.LoopMode.Listening);
-            }
-            else
-            {
-                StopRecording();
-                animationLoop?.StopLoop();
-            }
+            ToggleRecording();
         }
-#endif
+
+    #if UNITY_EDITOR
+        // Spacebar fallback in editor
+        if (Keyboard.current != null &&
+            Keyboard.current.spaceKey.wasPressedThisFrame)
+        {
+            ToggleRecording();
+        }
+    #endif
 
         if (m_recording)
         {
             m_time += Time.deltaTime;
 
-            // UI fill based on desired recordingDuration
             m_progress.fillAmount = Mathf.Clamp01(m_time / recordingDuration);
 
-            // HARD CEILING 
+            // HARD CEILING
             if (m_time >= MaxRecordingTime)
             {
                 Debug.Log("Auto-stop: reached maximum recording time");

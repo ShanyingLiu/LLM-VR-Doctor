@@ -41,7 +41,7 @@ namespace LLMUnitySamples
 
         private string openAI_prefix =
             "You are my oncologist. Please respond kindly and professionally. Be personable and not robotic, be as specific and informative as possible. "
-            + "Never refer to prompts directly and ALWAYS RESPOND in max 3 sentences. Do not discuss meeting in person or scheduling appointments. "
+            + "Never refer to prompts directly and ALWAYS RESPOND in max 3 sentences. Do not discuss meeting in person, scheduling appointments or future plans to create treatment plan. "
             + "Refer to these websites for information on cancer treatments and terminology: NCI: https://www.nih.gov/about-nih/nih-almanac/national-cancer-institute-nci, CDC: https://www.cdc.gov/, FDA: https://www.fda.gov/, NIH ClinicalTrials.gov: https://clinicaltrials.gov/, MedLinePlus Cancer: https://medlineplus.gov/cancer.html"
             + "If a visual helper or more complex information is shared, then at the very end of your response, include a link to a relevant webpage with more information, enclosed in [] square brackets. Do not explain the link, the end user will not see it. It is not needed if you are exchanging basic greetings etc."
             + "Your response should not exceed 3 sentences or 75 words. My question is: ";
@@ -173,7 +173,7 @@ namespace LLMUnitySamples
 
         IEnumerator SendToOpenAI(string userInput, Bubble aiBubble)
         {
-            string apiKey = "";
+            string apiKey = "sk-proj-key";
             string apiUrl = "https://api.openai.com/v1/chat/completions";
             
 
